@@ -1,0 +1,25 @@
+{
+	"name": "gusnips/convert",
+	"description": "Library to add effects to images",
+	"keywords": ["convert", "imagick", "imagemagick", "effects"],
+	"homepage": "https://github.com/gusnips/convert#readme",
+	"type": "library",
+	"license": "MIT",
+	"authors": [
+		{
+			"name": "Gustavo Salomé Silva",
+			"email": "gustavonips@gmail.com",
+			"homepage": "http://openwings.com.br/",
+			"role": "Creator"
+		}
+	],
+	"support": {
+		"issues": "https://github.com/gusnips/convert/issues",
+		"source": "https://github.com/gusnips/convert"
+	},
+	"require": {
+		"php": ">=5.4.0",
+    	"ext-gd": "*",
+    	"ext-imagick": "*",
+	},
+}
