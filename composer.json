@@ -17,6 +17,11 @@
 		"issues": "https://github.com/gusnips/convert/issues",
 		"source": "https://github.com/gusnips/convert"
 	},
+	"autoload": {
+		"psr-4": {
+			"gusnips\\convert\\": ""
+		}
+	},
 	"require": {
 		"php": ">=5.4.0",
     		"ext-gd": "*",
