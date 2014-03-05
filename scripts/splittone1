@@ -1,0 +1,435 @@
+#!/bin/bash
+#
+# Developed by Fred Weinhaus 12/16/2013 .......... revised 12/18/2013
+# 
+# USAGE: splittone1 [-sc shadowcolor] [-sa shadowamt] [-hc highlightcolor] 
+# [-ha highlightamt] [-b bri] [-c con] [-s sat] [-h hue] [-m method] 
+# [-p processing] infile outfile
+# USAGE: splittone1 [-help]
+# 
+# OPTIONS:
+# 
+# -sc     shadowcolor        shadow color; any opaque IM color allowed; 
+#                        	 default=black
+# -hc     highlightcolor     highlight color; any opaque IM color allowed; 
+#                            default=white
+# -sa     shadowamt          shadow amount; 0<=integer<=100; default=30
+# -ha     highlightamt       highlight amount; 0<=integer<=100; default=30
+# -b      bri                brightness; -100<=integer<=100; default=0
+# -s      sat                saturation; -100<=integer<=100; default=0
+# -c      con                contrast; -100<=integer<=100; default=0
+# -h      hue                hue; -100<=integer<=100; default=0
+# -m      method             order of shadow and highlight processing; 
+#                            choices are: SH (shadow first) or HS (highlight
+#                            first); default=SH
+# -p      processing		 brightness and contrast processing; choices are: 
+#                            pre (preprocessing), post (postprocessing, or 
+#                            both; default=both
+#
+###
+# 
+# NAME: SPLITTONE1 
+# 
+# PURPOSE: To apply a color splittone effect to an image.
+# 
+# DESCRIPTION: SPLITTONE1 applies a color splittone effect to an image by 
+# adjusting shadow and highlight color separately. 
+# 
+# 
+# ARGUMENTS: 
+# 
+# -sc shadowcolor ... SHADOWCOLOR is the shadow color. Any opaque IM color is 
+# allowed. The default=black
+# 
+# -hc highlightcolor ... HIGHLIGHTCOLOR is the highlight color. Any opaque IM 
+# color is allowed. The default=black
+# 
+# -sa shadowamt ... SHADOWAMT is the shadow amount. Values are integers 
+# between 0 and 100. The default=30
+# 
+# -ha highlightamt ... HIGHLIGHTAMT is the highlight amount. Values are 
+# integers between 0 and 100. The default=30
+# 
+# -b bri ... BRI is the percent change in brightness. Values are integers 
+# between -100 and 100. The default=0 (no change)
+# 
+# -s sat ... SAT is the percent change in saturation. Values are integers 
+# between -100 and 100. The default=0 (no change)
+# 
+# -c con ... CON is the percent change in contrast. Values are integers 
+# between -100 and 100. The default=0 (no change)
+# 
+# -h hue ... HUE is the percent change in hue. Values are integers between
+# -100 and 100. The default=0 (no change)
+# 
+# -m method ... METHOD specifies the order of shadow and hightlight processing.
+# The choices are: SH (shadow first) or HS (highlight first. The default=SH
+# 
+# -p processing ... PROCESSING specifies where to adjust the brightness and 
+# contrast. The choices are: pre (for preprocessing), post (for postprocessing) 
+# or both (for both places). The default=both
+#
+# CAVEAT: No guarantee that this script will work on all platforms, 
+# nor that trapping of inconsistent parameters is complete and 
+# foolproof. Use At Your Own Risk. 
+# 
+######
+# 
+
+# set default values
+scolor="black"				# shadow color; default=black
+hcolor="white"				# highlight color; default=white
+samt=30						# shadow amount; integer>=0
+hamt=30						# highlight amount; integer>=0
+bri=0						# brightness; -100<=integer<=100
+con=0						# contrast; -100<=integer<=100
+sat=0						# saturation; integer>=0; 100 is no change
+hue=0						# hue; 0<=integer<=200; 100 is no change
+method="SH"					# order of processing; SH or HS
+proc="both"					# bc processing; pre, post, both
+
+# border parameters 
+bordertype="none"
+bordercolor="white"
+borderwidth=5
+borderrounding=10
+
+# set directory for temporary files
+dir="/tmp"    # suggestions are dir="." or dir="/tmp"
+
+# set up functions to report Usage and Usage with Description
+PROGNAME=`type $0 | awk '{print $3}'`  # search for executable on path
+PROGDIR=`dirname $PROGNAME`            # extract directory of program
+PROGNAME=`basename $PROGNAME`          # base name of program
+usage1() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^###/q;  /^#/!q;  s/^#//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+usage2() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^######/q;  /^#/!q;  s/^#*//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+
+
+# function to report error messages
+errMsg()
+	{
+	echo ""
+	echo $1
+	echo ""
+	usage1
+	exit 1
+	}
+
+
+# function to test for minus at start of value of second part of option 1 or 2
+checkMinus()
+	{
+	test=`echo "$1" | grep -c '^-.*$'`   # returns 1 if match; 0 otherwise
+    [ $test -eq 1 ] && errMsg "$errorMsg"
+	}
+
+# test for correct number of arguments and get values
+if [ $# -eq 0 ]
+	then
+	# help information
+   echo ""
+   usage2
+   exit 0
+else
+	while [ $# -gt 0 ]
+		do
+			# get parameter values
+			case "$1" in
+		     -help)    # help information
+					   echo ""
+					   usage2
+					   exit 0
+					   ;;
+				-sc)    # get  shadowcolor
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID SHADOWCOLOR SPECIFICATION ---"
+					   checkMinus "$1"
+					   scolor="$1"
+					   ;;
+				-hc)    # get  highlightcolor
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID HIGHLIGHT SPECIFICATION ---"
+					   checkMinus "$1"
+					   hcolor="$1"
+					   ;;
+				-sa)    # get shadowamt
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID SHADOWAMT SPECIFICATION ---"
+					   checkMinus "$1"
+					   samt=`expr "$1" : '\([0-9]*\)'`
+					   [ "$samt" = "" ] && errMsg "--- SHADOWAMT=$samt MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$samt < -100" | bc`
+					   testB=`echo "$samt > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- SHADOWAMT=$samt MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-ha)    # get highlightamt
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID HIGHLIGHTAMT SPECIFICATION ---"
+					   checkMinus "$1"
+					   hamt=`expr "$1" : '\([0-9]*\)'`
+					   [ "$hamt" = "" ] && errMsg "--- HIGHLIGHTAMT=$hamt MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$hamt < -100" | bc`
+					   testB=`echo "$hamt > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- HIGHLIGHTAMT=$hamt MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-b)    # get bri
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   #errorMsg="--- INVALID BRI SPECIFICATION ---"
+					   #checkMinus "$1"
+					   bri=`expr "$1" : '\([-0-9]*\)'`
+					   [ "$bri" = "" ] && errMsg "--- BRI=$bri MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$bri < -100" | bc`
+					   testB=`echo "$bri > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- BRI=$bri MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-c)    # get con
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   #errorMsg="--- INVALID CON SPECIFICATION ---"
+					   #checkMinus "$1"
+					   con=`expr "$1" : '\([-0-9]*\)'`
+					   [ "$con" = "" ] && errMsg "--- CON=$con MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$con < -100" | bc`
+					   testB=`echo "$con > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- CON=$con MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-s)    # get sat
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   #errorMsg="--- INVALID SAT SPECIFICATION ---"
+					   #checkMinus "$1"
+					   sat=`expr "$1" : '\([-0-9]*\)'`
+					   [ "$sat" = "" ] && errMsg "--- SAT=$sat MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$sat < -100" | bc`
+					   testB=`echo "$sat > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- SAT=$sat MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-h)    # get hue
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   #errorMsg="--- INVALID HUE SPECIFICATION ---"
+					   #checkMinus "$1"
+					   hue=`expr "$1" : '\([-0-9]*\)'`
+					   [ "$hue" = "" ] && errMsg "--- HUE=$hue MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$hue < -100" | bc`
+					   testB=`echo "$hue > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- HUE=$hue MUST BE AN INTEGER BETWEEN -100 AND 100 ---"
+					   ;;
+				-m)    # get method
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID METHOD SPECIFICATION ---"
+					   checkMinus "$1"
+					   method=`echo "$1" | tr "[:lower:]" "[:upper:]"`
+					   [ "$method" != "SH" -a "$method" != "HS" ] && errMsg "--- METHOD=$method MUST BE EITHER HS OR SH ---"
+					   ;;
+			   	-p)    # processing
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID PROCESSING SPECIFICATION ---"
+					   checkMinus "$1"
+					   proc=`echo "$1" | tr "[:upper:]" "[:lower:]"`
+					   case "$proc" in
+					   		pre) ;;
+					   		post) ;;
+					   		both) ;;
+					   		*) errMsg "--- PROCESSING=$proc IS NOT A VALID CHOICE ---" ;;
+					   esac
+					   ;;
+				-T)    # get  bordertype
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERTYPE SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordertype=`echo "$1" | tr '[A-Z]' '[a-z]'`
+					   case "$bordertype" in 
+					   		none|n) bordertype=none ;;
+					   		torn|t) bordertype=torn;;
+					   		round|rounded|r) bordertype=round;;
+					   		*) errMsg "--- BORDERTYPE=$bordertype IS AN INVALID VALUE ---"  ;;
+					   esac
+					   ;;
+				-W)    # get borderwidth
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERWIDTH SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderwidth=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderwidth" = "" ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderwidth < 0" | bc`
+					   test2=`echo "$borderwidth > 100" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE AN INTEGER BETWEEN 0 AND 100 ---"
+					   ;;
+				-R)    # get borderrounding
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERROUNDING SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderrounding=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderrounding" = "" ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderrounding < 0" | bc`
+					   test2=`echo "$borderrounding > 50" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE AN INTEGER BETWEEN 0 AND 50 ---"
+					   ;;
+				-C)    # get bordercolor
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERCOLOR SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordercolor="$1"
+					   ;;
+				 -)    # STDIN and end of arguments
+					   break
+					   ;;
+				-*)    # any other - argument
+					   errMsg "--- UNKNOWN OPTION ---"
+					   ;;
+		     	 *)    # end of arguments
+					   break
+					   ;;
+			esac
+			shift   # next option
+	done
+	#
+	# get infile and outfile
+	infile=$1
+	outfile=$2
+fi
+
+# test that infile provided
+[ "$infile" = "" ] && errMsg "NO INPUT FILE SPECIFIED"
+
+# test that outfile provided
+[ "$outfile" = "" ] && errMsg "NO OUTPUT FILE SPECIFIED"
+
+
+# set directory for temporary files
+dir="."    # suggestions are dir="." or dir="/tmp"
+
+
+# setup temporary images
+tmpA1="$dir/splittone1_1_$$.mpc"
+tmpB1="$dir/splittone1_1_$$.cache"
+trap "rm -f $tmpA1 $tmpB1; exit 0" 0
+trap "rm -f $tmpA1 $tmpB1; exit 1" 1 2 3 15
+
+# read the input image into the temporary cached image and test if valid
+convert -quiet -regard-warnings "$infile" +repage "$tmpA1" ||
+	echo "--- 1 FILE $infile DOES NOT EXIST OR IS NOT AN ORDINARY FILE, NOT READABLE OR HAS ZERO size  ---"
+
+
+# convert sat and hue to modulate values
+sat=$((sat+100))
+hue=$((hue+100))
+
+# set up for bri/con 
+if [ "$proc" = "pre" ]; then
+	bcproc1="-brightness-contrast $bri,$con"
+	bcproc2=""
+elif [ "$proc" = "post" ]; then
+	bcproc1=""
+	bcproc2="-brightness-contrast $bri,$con"
+elif [ "$proc" = "both" ]; then
+	bcproc1="-brightness-contrast $bri,$con"
+	bcproc2="-brightness-contrast $bri,$con"
+fi
+
+# change sat and/or hue
+convert $tmpA1 $bcproc1 -modulate 100,$sat,$hue $tmpA1
+
+
+if [ "$method" = "SH" ]; then
+
+	if [ "$samt" != "0" ]; then
+		convert $tmpA1 \
+			\( +clone -fill "$scolor" -colorize 100% -alpha set -channel A -evaluate set $samt% +channel \) \
+			-compose lighten -composite $tmpA1
+	fi
+
+	if [ "$hamt" != "0" ]; then
+		convert $tmpA1 \
+			\( +clone -fill "$hcolor" -colorize 100% -alpha set -channel A -evaluate set $hamt% +channel \) \
+			-compose darken -composite $tmpA1
+	fi
+
+elif [ "$method" = "HS" ]; then
+
+	if [ "$hamt" != "0" ]; then
+			\( +clone -fill "$hcolor" -colorize 100% -alpha set -channel A -evaluate set $hamt% +channel \) \
+			-compose darken -composite $tmpA1
+	fi
+
+	if [ "$samt" != "0" ]; then
+		convert $tmpA1 \
+			\( +clone -fill "$scolor" -colorize 100% -alpha set -channel A -evaluate set $samt% +channel \) \
+			-compose lighten -composite $tmpA1
+	fi
+
+fi
+
+
+
+convert $tmpA1 $bcproc2 $outfile
+
+# add border/frame
+if [ "$bordertype" = "torn" ]; then
+	psize=$((borderwidth+tornpad))
+	# see disperse script
+		# create bordercolor image for compositing at the end
+		# create white image with black around the inside of the edges
+		# create random image, blur, apply sin/cos to RG channel (for GB) and previous image (for R), displace around border, add slight spread for tornroughness
+		# composite backgroundcolor original image and dispersed border
+	convert $outfile \
+		\( -clone 0 -fill "$bordercolor" -colorize 100% \) \
+		\( -clone 0 -fill white -colorize 100% -shave ${psize}x${psize} -bordercolor black -border $psize \) \
+		\( -clone 0 -seed $tornseed +noise Random -blur 0x$torncurviness \
+			$setcspace -colorspace gray -auto-level \
+			-channel R -evaluate sine $torndensity \
+			-channel G -evaluate cosine $torndensity \
+			-channel RG -separate -clone 2 -insert 0 \
+			-define compose:args=${borderwidth}x${borderwidth} \
+			-compose displace -composite -spread $tornroughness -blur 0x0.7 \) \
+		-delete 2 -swap 0,1 -compose over -composite -trim +repage \
+		-gravity center -background "$bordercolor" -extent ${ww}x${hh} \
+		$outfile
+
+elif [ "$bordertype" = "round" ]; then
+	# need special processing for IM before 6.7.6.8 to set up the alpha channel so that it is white before addding black cornerss 
+	if [ "$im_version" -lt "06070608" ]; then
+		# either of the following work
+		# aproc="-matte -channel A -evaluate set 0%"
+		aproc="+matte -channel A -evaluate set 100%"
+	else
+		aproc="-alpha set -channel A"
+	fi
+	round=`convert xc: -format "%[fx:min($ww,$hh)*$borderrounding/100]" info:`
+	convert $outfile \( -clone 0 $aproc -separate +channel \
+		\( -size ${round}x${round} xc:black -draw "fill white circle ${round},${round} ${round},0" -write mpr:arc +delete \) \
+		\( mpr:arc \) -gravity northwest -composite \
+		\( mpr:arc -flip \) -gravity southwest -composite \
+		\( mpr:arc -flop \) -gravity northeast -composite \
+		\( mpr:arc -rotate 180 \) -gravity southeast -composite \) \
+		-clone 0 -clone 1 -alpha off -compose copy_opacity -composite \
+		-background "$bordercolor" -compose over -flatten \
+		-bordercolor "$bordercolor" -border $borderwidth \
+		$outfile
+
+fi
+
+
+exit 0

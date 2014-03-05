@@ -1,0 +1,304 @@
+#!/bin/bash
+#
+# Developed by Fred Weinhaus 6/23/2013 .......... revised 6/23/2013
+# 
+# USAGE: davehilleffect [-b brightness] [-c contrast] [-g gain ] infile outfile
+# USAGE: davehilleffect [-h or -help]
+# 
+# OPTIONS:
+# 
+# -b     brightness     brightness factor; float>=0; default=1 no change
+# -c     contrast       contrast; float; nominally -10 to 10; default=0 
+# -g     gain           effect gain; 0<=integer<=100; default=40
+# 
+###
+# 
+# NAME: DAVEHILLEFFECT 
+# 
+# PURPOSE: To apply a DaveHill-like effect to an image.
+# 
+# DESCRIPTION: DAVEHILLEFFECT applies a DaveHill-like effect to an image.
+# 
+# 
+# ARGUMENTS: 
+# 
+# -b brightness ... BRIGHTNESS is a brightness factor. Values are floats>=0. 
+# The default=1 or no change. Increase brightness is larger than 1.
+# Decrease brightness is less than 1.
+# 
+# -c contrast ... CONTRAST is a sigmoidal contrast. Values are floats nominally 
+# in the range of -10 to 10. Positive values increase contrast and negative 
+# values decrease contrast. The default=0 (no change).
+# 
+# -g gain ... GAIN is the effect gain. Values are integers between 0 and 100.
+# The default=40
+# 
+# References:
+# http://www.diyphotography.net/creating-that-dave-hill-look
+# http://logosdesign.blogspot.com/2008/07/dave-hill-effect-photography-tutorial.html
+#
+# REQUIREMENTS: IM 6.6.1.9 due to the use of -morphology DoG
+# 
+# CAVEAT: No guarantee that this script will work on all platforms, 
+# nor that trapping of inconsistent parameters is complete and 
+# foolproof. Use At Your Own Risk. 
+# 
+######
+# 
+
+# set default values
+brightness=1		# float>=0; 1=no change; >1 is brighter; <1 is darker
+contrast=0			# nominally -10 to 10; 0 is no change
+gain=40				# integer between 0 and 100
+
+# border parameters 
+bordertype="none"
+bordercolor="white"
+borderwidth=5
+borderrounding=10
+
+# set directory for temporary files
+dir="/tmp"    # suggestions are dir="." or dir="/tmp"
+
+# set up functions to report Usage and Usage with Description
+PROGNAME=`type $0 | awk '{print $3}'`  # search for executable on path
+PROGDIR=`dirname $PROGNAME`            # extract directory of program
+PROGNAME=`basename $PROGNAME`          # base name of program
+usage1() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^###/q;  /^#/!q;  s/^#//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+usage2() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^######/q;  /^#/!q;  s/^#*//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+
+
+# function to report error messages
+errMsg()
+	{
+	echo ""
+	echo $1
+	echo ""
+	usage1
+	exit 1
+	}
+
+
+# function to test for minus at start of value of second part of option 1 or 2
+checkMinus()
+	{
+	test=`echo "$1" | grep -c '^-.*$'`   # returns 1 if match; 0 otherwise
+    [ $test -eq 1 ] && errMsg "$errorMsg"
+	}
+
+# test for correct number of arguments and get values
+if [ $# -eq 0 ]
+	then
+	# help information
+   echo ""
+   usage2
+   exit 0
+else
+	while [ $# -gt 0 ]
+		do
+			# get parameter values
+			case "$1" in
+		  -h|-help)    # help information
+					   echo ""
+					   usage2
+					   exit 0
+					   ;;
+				-b)    # get  brightness
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BRIGHTNESS SPECIFICATION ---"
+					   checkMinus "$1"
+					   brightness=`expr "$1" : '\([.0-9]*\)'`
+					   [ "$brightness" = "" ] && errMsg "--- BRIGHTNESS=$brightness MUST BE A NON-NEGATIVE FLOAT VALUE (with no sign) ---"
+					   ;;
+				-c)    # get  contrast
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID CONTRAST SPECIFICATION ---"
+					   #checkMinus "$1"
+					   contrast=`expr "$1" : '\([-.0-9]*\)'`
+					   [ "$contrast" = "" ] && errMsg "--- CONTRAST=$contrast MUST BE A FLOAT VALUE ---"
+					   ;;
+				-g)    # get  gain
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID GAIN SPECIFICATION ---"
+					   checkMinus "$1"
+					   gain=`expr "$1" : '\([0-9]*\)'`
+					   [ "$gain" = "" ] && errMsg "--- GAIN=$gain MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$gain < 0" | bc`
+					   test1=`echo "$gain > 100" | bc`
+					   [ $test1 -eq 1 ] && errMsg "--- GAIN=$gain MUST BE AN INTEGER BETWEEN 0 AND 100 ---"
+					   ;;
+				-T)    # get  bordertype
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERTYPE SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordertype=`echo "$1" | tr '[A-Z]' '[a-z]'`
+					   case "$bordertype" in 
+					   		none|n) bordertype=none ;;
+					   		torn|t) bordertype=torn;;
+					   		round|rounded|r) bordertype=round;;
+					   		*) errMsg "--- BORDERTYPE=$bordertype IS AN INVALID VALUE ---"  ;;
+					   esac
+					   ;;
+				-W)    # get borderwidth
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERWIDTH SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderwidth=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderwidth" = "" ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderwidth < 0" | bc`
+					   test2=`echo "$borderwidth > 100" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE AN INTEGER BETWEEN 0 AND 100 ---"
+					   ;;
+				-R)    # get borderrounding
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERROUNDING SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderrounding=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderrounding" = "" ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderrounding < 0" | bc`
+					   test2=`echo "$borderrounding > 50" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE AN INTEGER BETWEEN 0 AND 50 ---"
+					   ;;
+				-C)    # get bordercolor
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERCOLOR SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordercolor="$1"
+					   ;;
+				 -)    # STDIN and end of arguments
+					   break
+					   ;;
+				-*)    # any other - argument
+					   errMsg "--- UNKNOWN OPTION ---"
+					   ;;
+		     	 *)    # end of arguments
+					   break
+					   ;;
+			esac
+			shift   # next option
+	done
+	#
+	# get infile and outfile
+	infile=$1
+	outfile=$2
+fi
+
+# test that infile provided
+[ "$infile" = "" ] && errMsg "NO INPUT FILE SPECIFIED"
+
+# test that outfile provided
+[ "$outfile" = "" ] && errMsg "NO OUTPUT FILE SPECIFIED"
+
+
+# setup temporary images
+tmpA1="$dir/davehilleffect_1_$$.mpc"
+tmpB1="$dir/davehilleffect_1_$$.cache"
+trap "rm -f $tmpA1 $tmpB1; exit 0" 0
+trap "rm -f $tmpA1 $tmpB1; exit 1" 1 2 3 15
+
+# read the input image into the temporary cached image and test if valid
+convert -quiet -regard-warnings "$infile" +repage "$tmpA1" ||
+	echo "--- 1 FILE $infile DOES NOT EXIST OR IS NOT AN ORDINARY FILE, NOT READABLE OR HAS ZERO size  ---"
+
+
+# set up brightness
+if [ "$brightness" = "1" ]; then 
+	brightening=""
+else
+	brightening="-evaluate multiply $brightness"
+fi
+
+# set up contrast
+if [ "$contrast" = "0" ]; then 
+	contrasting=""
+else
+	test1=`convert xc: -format "%[fx:sign($contrast)]" info:`
+	abscontrast=`convert xc: -format "%[fx:abs($contrast)]" info:`
+	if [ $test1 -eq 1 ]; then
+		contrasting="-sigmoidal-contrast ${abscontrast}x50%"
+	else
+		contrasting="+sigmoidal-contrast ${abscontrast}x50%"
+	fi
+fi
+
+# set up gain
+grayval="gray$gain"
+
+# process image
+# first line: read image, enhance brightness, sigmoidal-contrast
+# second line: clone and apply high pass filter using DoG
+# third line: do vividlight composite between the two images
+# fourth line: clone result apply high pass filter
+# fifth line: set up gray image of appropriate value to use as mask (equivalent to changing alpha channel value)
+# sixth line: use hardlight composite of the last three images
+convert $tmpA1 $brightening $contrasting \
+	\( -clone 0 -bias 50% -define convolve:scale=1 -morphology Convolve DoG:0,0,4 \) \
+	-compose vividlight -composite \
+	\( -clone 0 -bias 50% -define convolve:scale=1 -morphology Convolve DoG:0,0,6.9 \) \
+	\( -clone 0 -fill $grayval -colorize 100 \) \
+	-compose colorize -composite $outfile
+
+# add border/frame
+if [ "$bordertype" = "torn" ]; then
+	psize=$((borderwidth+tornpad))
+	# see disperse script
+		# create bordercolor image for compositing at the end
+		# create white image with black around the inside of the edges
+		# create random image, blur, apply sin/cos to RG channel (for GB) and previous image (for R), displace around border, add slight spread for tornroughness
+		# composite backgroundcolor original image and dispersed border
+	convert $outfile \
+		\( -clone 0 -fill "$bordercolor" -colorize 100% \) \
+		\( -clone 0 -fill white -colorize 100% -shave ${psize}x${psize} -bordercolor black -border $psize \) \
+		\( -clone 0 -seed $tornseed +noise Random -blur 0x$torncurviness \
+			$setcspace -colorspace gray -auto-level \
+			-channel R -evaluate sine $torndensity \
+			-channel G -evaluate cosine $torndensity \
+			-channel RG -separate -clone 2 -insert 0 \
+			-define compose:args=${borderwidth}x${borderwidth} \
+			-compose displace -composite -spread $tornroughness -blur 0x0.7 \) \
+		-delete 2 -swap 0,1 -compose over -composite -trim +repage \
+		-gravity center -background "$bordercolor" -extent ${ww}x${hh} \
+		$outfile
+
+elif [ "$bordertype" = "round" ]; then
+	# need special processing for IM before 6.7.6.8 to set up the alpha channel so that it is white before addding black cornerss 
+	if [ "$im_version" -lt "06070608" ]; then
+		# either of the following work
+		# aproc="-matte -channel A -evaluate set 0%"
+		aproc="+matte -channel A -evaluate set 100%"
+	else
+		aproc="-alpha set -channel A"
+	fi
+	round=`convert xc: -format "%[fx:min($ww,$hh)*$borderrounding/100]" info:`
+	convert $outfile \( -clone 0 $aproc -separate +channel \
+		\( -size ${round}x${round} xc:black -draw "fill white circle ${round},${round} ${round},0" -write mpr:arc +delete \) \
+		\( mpr:arc \) -gravity northwest -composite \
+		\( mpr:arc -flip \) -gravity southwest -composite \
+		\( mpr:arc -flop \) -gravity northeast -composite \
+		\( mpr:arc -rotate 180 \) -gravity southeast -composite \) \
+		-clone 0 -clone 1 -alpha off -compose copy_opacity -composite \
+		-background "$bordercolor" -compose over -flatten \
+		-bordercolor "$bordercolor" -border $borderwidth \
+		$outfile
+
+fi
+
+exit 0
+

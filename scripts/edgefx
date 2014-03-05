@@ -1,0 +1,324 @@
+#!/bin/bash
+#
+# Developed by Fred Weinhaus 11/12/2012 .......... revised 11/12/2012
+#
+# USAGE: edgefx [-s strength] [-c compose] [-m mix] [-N] infile outfile
+# USAGE: edgefx [-h or -help]
+#
+# OPTIONS:
+#
+# -s     strength      edge strength (i.e. gain or intensity); float>=0; 
+#                      default=5
+# -c     compose       compose method to composite edge image with original;
+#                      most mathematical, lighting or channel IM compose 
+#                      methods allowed; default=over for no composition;
+# -m     mix           mix percent between compose processed edge image and 
+#                      the original; 0<=integer<=100; default=100 for full 
+#                      edge composed image (0 for original image)
+# -N                   Negate (invert) edge polarity
+#
+###
+#
+# NAME: EDGEFX 
+# 
+# PURPOSE: To extract the edges of an image and optionally composes them with  
+# the image to create interesting effects.
+# 
+# DESCRIPTION: EDGEFX extracts the edges of an image and optionally composes 
+# them with the image to create interesting effects
+# 
+# OPTIONS: 
+# 
+# -s  strength ... STRENGTH is the edge strength (i.e., gain or intensity). 
+# Values are floats>=0. The default=5.
+# 
+# -c compose ... COMPOSE is the compose method used to combine the edge image 
+# with the original image. Most mathematical, lighting or channel IM compose 
+# methods are allowed. The default=over, which is like no extra composition
+# effects
+#
+# -m mix ... MIX is the mix percent between compose processed edge image and 
+# the original. Mix=0 results in the original image. Mix=100 is results in the 
+# compose processed edge image. The default=100. When used with the default 
+# compose method, this produces the simple edge extracted image.
+# 
+# -N ... NEGATE (invert) edge polarity.
+# 
+# CAVEAT: No guarantee that this script will work on all platforms, 
+# nor that trapping of inconsistent parameters is complete and 
+# foolproof. Use At Your Own Risk. 
+# 
+######
+#
+
+# set default values
+strength=5			# edge strength
+compose="over"		# compose method
+mix=100				# mixing percent of edge composed image with the original
+neg="no"            # negate edges
+
+# border parameters 
+bordertype="none"
+bordercolor="white"
+borderwidth=5
+borderrounding=10
+
+# set directory for temporary files
+dir="/tmp"    # suggestions are dir="." or dir="/tmp"
+
+# set up functions to report Usage and Usage with Description
+PROGNAME=`type $0 | awk '{print $3}'`  # search for executable on path
+PROGDIR=`dirname $PROGNAME`            # extract directory of program
+PROGNAME=`basename $PROGNAME`          # base name of program
+usage1() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^###/q;  /^#/!q;  s/^#//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+usage2() 
+	{
+	echo >&2 ""
+	echo >&2 "$PROGNAME:" "$@"
+	sed >&2 -n '/^######/q;  /^#/!q;  s/^#*//;  s/^ //;  4,$p' "$PROGDIR/$PROGNAME"
+	}
+
+
+# function to report error messages
+errMsg()
+	{
+	echo ""
+	echo $1
+	echo ""
+	usage1
+	exit 1
+	}
+
+
+# function to test for minus at start of value of second part of option 1 or 2
+checkMinus()
+	{
+	test=`echo "$1" | grep -c '^-.*$'`   # returns 1 if match; 0 otherwise
+    [ $test -eq 1 ] && errMsg "$errorMsg"
+	}
+
+# test for correct number of arguments and get values
+if [ $# -eq 0 ]
+	then
+	# help information
+   echo ""
+   usage2
+   exit 0
+else
+	while [ $# -gt 0 ]
+		do
+			# get parameter values
+			case "$1" in
+		  -h|-help)    # help information
+					   echo ""
+					   usage2
+					   exit 0
+					   ;;
+				-s)    # get strength
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID STRENGTH SPECIFICATION ---"
+					   checkMinus "$1"
+					   strength=`expr "$1" : '\(.[0-9]*\)'`
+					   [ "$strength" = "" ] && errMsg "--- STRENGTH=$strength MUST BE A NON-NEGATIVE FLOAT ---"
+					   ;;
+				-c)    # get  compose
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID COMPOSE SPECIFICATION ---"
+					   checkMinus "$1"
+					   compose=`echo "$1" | tr '[A-Z]' '[a-z]'`
+					   case "$compose" in 
+					   		over) ;;
+					   		overlay) ;;
+					   		multiply) ;;
+					   		hard_light) ;;
+					   		soft_light) ;;
+					   		pegtop_light) ;;
+					   		pin_light) ;;
+					   		linear_light) ;;
+					   		vivid_light) ;;
+					   		linear_dodge) ;;
+					   		linear_burn) ;;
+					   		color_dodge) ;;
+					   		color_burn) ;;
+					   		difference) ;;
+					   		exclusion) ;;
+					   		lighten) ;;
+					   		darken) ;;
+					   		lightenintensity) ;;
+					   		darkenintensity) ;;
+					   		screen) ;;
+					   		hue) ;;
+					   		saturate) ;;
+					   		luminize) ;;
+					   		colorize) ;;
+					   		*) errMsg "--- COMPOSE=$compose IS AN INVALID VALUE ---"  ;;
+					   esac
+					   ;;
+				-m)    # get mix
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID MIX SPECIFICATION ---"
+					   checkMinus "$1"
+					   mix=`expr "$1" : '\([0-9]*\)'`
+					   [ "$mix" = "" ] && errMsg "--- MIX=$mix MUST BE A NON-NEGATIVE INTEGER ---"
+					   testA=`echo "$mix < 0" | bc`
+					   testB=`echo "$mix > 100" | bc`
+					   [ $testA -eq 1 -o $testB -eq 1 ] && errMsg "--- MIX=$mix MUST BE AN INTEGER BETWEEN 0 AND 100 ---"
+					   ;;
+				-N)    # get negate
+					   neg="yes"
+					   ;;
+				-T)    # get  bordertype
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERTYPE SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordertype=`echo "$1" | tr '[A-Z]' '[a-z]'`
+					   case "$bordertype" in 
+					   		none|n) bordertype=none ;;
+					   		torn|t) bordertype=torn;;
+					   		round|rounded|r) bordertype=round;;
+					   		*) errMsg "--- BORDERTYPE=$bordertype IS AN INVALID VALUE ---"  ;;
+					   esac
+					   ;;
+				-W)    # get borderwidth
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERWIDTH SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderwidth=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderwidth" = "" ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderwidth < 0" | bc`
+					   test2=`echo "$borderwidth > 100" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERWIDTH=$borderwidth MUST BE AN INTEGER BETWEEN 0 AND 100 ---"
+					   ;;
+				-R)    # get borderrounding
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERROUNDING SPECIFICATION ---"
+					   checkMinus "$1"
+					   borderrounding=`expr "$1" : '\([0-9]*\)'`
+					   [ "$borderrounding" = "" ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE A NON-NEGATIVE INTEGER VALUE (with no sign) ---"
+					   test1=`echo "$borderrounding < 0" | bc`
+					   test2=`echo "$borderrounding > 50" | bc`
+					   [ $test1 -eq 1 -o $test2 -eq 1 ] && errMsg "--- BORDERROUNDING=$borderrounding MUST BE AN INTEGER BETWEEN 0 AND 50 ---"
+					   ;;
+				-C)    # get bordercolor
+					   shift  # to get the next parameter
+					   # test if parameter starts with minus sign 
+					   errorMsg="--- INVALID BORDERCOLOR SPECIFICATION ---"
+					   checkMinus "$1"
+					   bordercolor="$1"
+					   ;;
+				 -)    # STDIN and end of arguments
+					   break
+					   ;;
+				-*)    # any other - argument
+					   errMsg "--- UNKNOWN OPTION ---"
+					   ;;
+		     	 *)    # end of arguments
+					   break
+					   ;;
+			esac
+			shift   # next option
+	done
+	#
+	# get infile and outfile
+	infile=$1
+	outfile=$2
+fi
+
+# test that infile provided
+[ "$infile" = "" ] && errMsg "NO INPUT FILE SPECIFIED"
+
+# test that outfile provided
+[ "$outfile" = "" ] && errMsg "NO OUTPUT FILE SPECIFIED"
+
+
+# set directory for temporary files
+tmpdir="/$dir"
+
+dir="$tmpdir/SOFTFOCUS.$$"
+
+mkdir "$dir" || errMsg "--- FAILED TO CREATE TEMPORARY FILE DIRECTORY ---"
+trap "rm -rf $dir; exit 0" 0
+trap "rm -rf $dir; exit 1" 1 2 3 15
+
+# read input image into temporary memory mapped (mpc) format image
+convert -quiet -regard-warnings "$infile" +repage $dir/tmpI.mpc ||
+	echo  "--- FILE $thefile DOES NOT EXIST OR IS NOT AN ORDINARY FILE, NOT READABLE OR HAS ZERO SIZE  ---"
+
+
+# set up for negate edges
+if [ "$neg" = "yes" ]; then
+	neg="-negate"
+else
+	neg=""
+fi
+
+# scale mix to range 0 to 1
+mix=`convert xc: -format "%[fx:$mix/100]" info:`
+
+# process image
+convert $dir/tmpI.mpc \
+	\( -clone 0 -define convolve:scale='!' \
+	-define morphology:compose=Lighten \
+	-morphology Convolve  'Sobel:>' \
+	-negate -evaluate pow $strength $neg \
+	-alpha set -evaluate multiply $mix \) \
+	-compose $compose -composite \
+	$outfile
+
+# add border/frame
+if [ "$bordertype" = "torn" ]; then
+	psize=$((borderwidth+tornpad))
+	# see disperse script
+		# create bordercolor image for compositing at the end
+		# create white image with black around the inside of the edges
+		# create random image, blur, apply sin/cos to RG channel (for GB) and previous image (for R), displace around border, add slight spread for tornroughness
+		# composite backgroundcolor original image and dispersed border
+	convert $outfile \
+		\( -clone 0 -fill "$bordercolor" -colorize 100% \) \
+		\( -clone 0 -fill white -colorize 100% -shave ${psize}x${psize} -bordercolor black -border $psize \) \
+		\( -clone 0 -seed $tornseed +noise Random -blur 0x$torncurviness \
+			$setcspace -colorspace gray -auto-level \
+			-channel R -evaluate sine $torndensity \
+			-channel G -evaluate cosine $torndensity \
+			-channel RG -separate -clone 2 -insert 0 \
+			-define compose:args=${borderwidth}x${borderwidth} \
+			-compose displace -composite -spread $tornroughness -blur 0x0.7 \) \
+		-delete 2 -swap 0,1 -compose over -composite -trim +repage \
+		-gravity center -background "$bordercolor" -extent ${ww}x${hh} \
+		$outfile
+
+elif [ "$bordertype" = "round" ]; then
+	# need special processing for IM before 6.7.6.8 to set up the alpha channel so that it is white before addding black cornerss 
+	if [ "$im_version" -lt "06070608" ]; then
+		# either of the following work
+		# aproc="-matte -channel A -evaluate set 0%"
+		aproc="+matte -channel A -evaluate set 100%"
+	else
+		aproc="-alpha set -channel A"
+	fi
+	round=`convert xc: -format "%[fx:min($ww,$hh)*$borderrounding/100]" info:`
+	convert $outfile \( -clone 0 $aproc -separate +channel \
+		\( -size ${round}x${round} xc:black -draw "fill white circle ${round},${round} ${round},0" -write mpr:arc +delete \) \
+		\( mpr:arc \) -gravity northwest -composite \
+		\( mpr:arc -flip \) -gravity southwest -composite \
+		\( mpr:arc -flop \) -gravity northeast -composite \
+		\( mpr:arc -rotate 180 \) -gravity southeast -composite \) \
+		-clone 0 -clone 1 -alpha off -compose copy_opacity -composite \
+		-background "$bordercolor" -compose over -flatten \
+		-bordercolor "$bordercolor" -border $borderwidth \
+		$outfile
+
+fi
+
+exit 0
